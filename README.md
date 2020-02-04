@@ -1,6 +1,6 @@
-**Status:** Expect regular updates and bug fixes.
+**Status:** Early stage code base. Expect regular updates, and breaking changes.
 
-# Utility for simulating dynamics of PV-DER
+# Utility for simulating dynamics of power electronic converters
 
 **To be added.**
 

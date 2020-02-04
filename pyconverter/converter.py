@@ -7,11 +7,11 @@ import scipy
 import logging
 
 from scipy import signal
-import matplotlib.pyplot as plt
 from scipy.integrate import odeint,ode
 
+from converter_utilities import plot_signal
 
-class PowerElectronicConverter:
+class SwitchingSignals:
     """
     Converter base class.
     
@@ -22,66 +22,81 @@ class PowerElectronicConverter:
     
     count = 0 #Object count
     
-    def __init__(self,fsw):
-        """Creates an instance of `Converter`.
+    def __init__(self,fsw,fm):
+        """Creates an instance of `SwitchingSignals`.
         
         Args:
            fsw (float): Switching frequency in Hz.
+           fm (float): Fundamental frequency of output waveform in Hz.
            
         Raises:
-          ValueError: If parameters corresponding to `Sinverter_rated` are not available.
+          ValueError: To be added
         
         """
+        
+        self.update_modulating_waveform(1.0,fm)
+        self.update_carrier_waveform(1.0,fsw)
+   
+    
+    @property                         #Decorator used for auto updating
+    def mf(self,):
+        """Frequency modulation index"""
+        
+        return self.fsw/self.fm
+    
+    @property                         #Decorator used for auto updating
+    def ma(self,):
+        """Amplitude modulation index"""
+        
+        return self.Am/self.Ac
+    
+    def update_modulating_waveform(self,Am=1.0,fm = 50.0):
+        """Update modulating amplitude and frequency."""
+        
+        self.Am=Am
+        self.fm = fm
+        self.Tm= 1/self.fm
+    
+    def update_carrier_waveform(self,Ac=1.0,fsw = 10000.0):
+        """Update switching/carrier amplitude and frequency."""
                 
-        PowerElectronicConverter.count = PowerElectronicConverter.count+1 #Increment count to keep track of number of converter model instances
-        
-        self.name = 'converter_'+str(PowerElectronicConverter.count)  #Generate a name for the instance
-       
-        self.update_PWM(fsw)
-        
-    def calc_primary(self,signal):
-        """Calculate the primary switch."""
-        
-        assert isinstance(signal,bool), 'Switching signal must be boolean.'
-        Sprimary = int(signal)   
-
-        return Sprimary
-
-    def calc_complimentary(self,signal):
-        """Calculate the complimentary."""
-        
-        assert isinstance(signal,bool), 'Switching signal must be boolean.'
-        Scomplimentary = int(not signal)       
-    
-        return Scomplimentary    
-    
-    #def update_fsw(self,fsw):
-        #Update switching/carrier frequency."""
-        
-        #self.fsw = fsw
-        #self.Tsw = 1/self.fsw
-    
-    def update_PWM(self,fsw = 10000.0):
-        """Setup PWM."""
-        
-        Ac=1.0
         self.Ac = Ac
         self.fsw = fsw #(fsw = fcarrier)Switching and carrier frequency are same    
         self.Tsw = 1/self.fsw
     
-    def show_PWM(self):
-        """Show switching settings."""
+    def show_waveforms(self):
+        """Show waveforms."""
         
-        print('fswitch:{:.2f},Tswitch:{:.5f},Time step:{:.5f}'.format(self.fsw,self.Tsw,self.dt_calc()))
+        print('fswitch:{:.2f},Tswitch:{:.5f}'.format(self.fsw,self.Tsw))
+        print('fmodulating:{:.2f},Tmodulating:{:.5f}'.format(self.fsw,self.Tsw))
+        print('ma:{:.3f},mf:{:.3f}'.format(self.ma,self.mf))
+        
+        print('Time step:{:.5f}'.format(self.dt_calc()))
     
-    def sinosoidalPWM(self,t,modulating_signal):
+    def sinosoidalPWM(self,t):
         """Create a sinusoidal PWM signal."""
-
+        
+        modulating_signal = self.sinosoid(self.Am,self.fm,t)
         carrier_signal = self.sawtooth(self.Ac,self.fsw,t)
+        
         switching_signal = self.comparator(modulating_signal,carrier_signal)
 
-        return switching_signal,carrier_signal
+        return {'switching':switching_signal,'carrier':carrier_signal,'modulating':modulating_signal} 
     
+    def square_wave(self,t):
+        """Create a square wave signal for ."""
+        
+        modulating_signal = self.sinosoid(self.Am,self.fm,t)
+
+        #if modulating_signal>0.0:
+        #    switching_signal = True
+        #else:
+        #    switching_signal = False
+            
+        switching_signal = self.comparator(modulating_signal,0.0)    
+
+        return {'switching':switching_signal,'modulating':modulating_signal}
+  
     def comparator(self,modulating_signal,carrier_signal):
         """Compare modulating signal with carrier signal."""
         
@@ -106,12 +121,11 @@ class PowerElectronicConverter:
         
         return amplitude*signal.sawtooth(2*np.pi*frequency*t, width=0.5)
 
-    
             
-    def check_fsw(self,fm):
+    def check_fsw(self):
         """Check if fsw is sufficient."""
         
-        assert self.fsw/fm >= 6.0, 'Switching freq {} should be atleast 6 times greater than modulating signal frequency {}'.format(self.fsw,fm)
+        assert self.fsw/self.fm >= 6.0, 'Switching freq {} should be atleast 6 times greater than modulating signal frequency {}'.format(self.fsw,self.fm)
     
     def dt_calc(self):
         """Calcuate time step."""
@@ -140,20 +154,55 @@ class PowerElectronicConverter:
             carrier_signal_t.append(carrier_signal)    
             print('Modulating signal:{:.3f},Carrier signal:{:.3f},Switching signal:{:.3f}'.format(modulating_signal,carrier_signal,switching_signal))
         
-        self.plot_signal(t_t, modulating_signal_t,'modulating signal',False)
-        self.plot_signal(t_t, carrier_signal_t,'carrier signal',False)
-        self.plot_signal(t_t, switching_signal_t,'switching signal',True)
+        plot_signal(t_t, modulating_signal_t,'modulating signal',False)
+        plot_signal(t_t, carrier_signal_t,'carrier signal',False)
+        plot_signal(t_t, switching_signal_t,'switching signal',True)
     
-    def plot_signal(self,time,signal,label,showPlot=False):
-        """Plot signal"""
-
-        plt.plot(time, signal,label=label)
-        plt.legend(fontsize =18)
         
-        if showPlot:
-            plt.xlabel('Time (s)')
-            plt.ylabel('Amplitude')            
-            plt.show()        
+
+class PowerElectronicConverter:
+    """
+    Converter base class.
+    
+    Attributes:
+        count (int): Number of converter objects.
+        
+    """
+    
+    count = 0 #Object count
+    
+    def __init__(self):
+        """Creates an instance of `Converter`.
+        
+        Args:
+           fsw (float): Switching frequency in Hz.
+           
+        Raises:
+          ValueError: If parameters corresponding to `Sinverter_rated` are not available.
+        
+        """
+                
+        PowerElectronicConverter.count = PowerElectronicConverter.count+1 #Increment count to keep track of number of converter model instances
+        
+        self.name = 'converter_'+str(PowerElectronicConverter.count)  #Generate a name for the instance
+       
+    
+    def calc_primary(self,signal):
+        """Calculate the primary switch."""
+        
+        assert isinstance(signal,bool), 'Switching signal must be boolean.'
+        Sprimary = int(signal)   
+
+        return Sprimary
+
+    def calc_complimentary(self,signal):
+        """Calculate the complimentary."""
+        
+        assert isinstance(signal,bool), 'Switching signal must be boolean.'
+        Scomplimentary = int(not signal)       
+    
+        return Scomplimentary    
+
         
 class PowerElectronicInverter(PowerElectronicConverter):
     """
@@ -165,22 +214,26 @@ class PowerElectronicInverter(PowerElectronicConverter):
     """
     
     Rf = 0.01
-    Lf = 25.0e-6
+    Lf = 2.0e-3
     
-    def __init__(self,fsw,Vdc):
+    Rload = 1.0
+    
+    def __init__(self,Vdc,signals,signal_type='square'):
         """Creates an instance of `Converter`.
         
         Args:
-           fsw (float): Switching frequency in Hz.
+           Vdc (float): DC link voltage.
            
         Raises:
-          ValueError: If parameters corresponding to `Sinverter_rated` are not available.
+          ValueError: To be added.
         
         """
         
-        super().__init__(fsw)  #Initialize converter class (base class)
+        super().__init__()  #Initialize converter class (base class)
         
         self.update_Vdc(Vdc)
+        self.signals = signals
+        self.signal_type='square'
     
     @property                         #Decorator used for auto updating
     def y(self):
@@ -193,6 +246,16 @@ class PowerElectronicInverter(PowerElectronicConverter):
         
         self.Vdc = Vdc
     
+    def switching_signal_calc(self,t):
+        """Calculate switching signal."""
+        
+        if self.signal_type=='PWM':
+            signal_dict = self.signals.sinosoidalPWM(t)
+        elif self.signal_type=='square':     
+            signal_dict = self.signals.square_wave(t)
+    
+        return signal_dict
+        
     def half_bridge_ideal(self,Vdc,S1):
         """Simulates a bridge in inverter"""
         
@@ -244,25 +307,25 @@ class PowerElectronicInverter(PowerElectronicConverter):
 
         return Van,Vbn,Vcn
 
-    def ODE_model(self,y,t,fm):
+    def ODE_model(self,y,t):
         """ODE model of inverter branch."""
         
         self.ia,dummy = y   # unpack current values of y
         #Am = 1 #Amplitude of modulating signal
        
         Vdc = 100.0 #Get DC link voltage
+        signals = self.switching_signal_calc(t)
+        switching_signal = signals['switching']
         
-        modulating_signal = self.sinosoid(1,fm,t)
-        switching_signal,carrier_signal = self.sinosoidalPWM(t,modulating_signal)
         self.vta = self.half_bridge_ideal(Vdc,switching_signal)
         
-        dia = (1/self.Lf)*(-self.Rf*self.ia + self.vta)
+        dia = (1/self.Lf)*(-self.Rf*self.ia + -self.Rload*self.ia + self.vta)
         
         result =  [dia,dummy]
         
         return np.array(result)
     
-    def simulate_inverter(self,fm,tf):
+    def simulate_inverter(self,tf):
         """Simulate an inverter.
         
         Args:
@@ -270,14 +333,20 @@ class PowerElectronicInverter(PowerElectronicConverter):
            tf (float): Simulation time in seconds.
         """
         
-        dt = self.dt_calc()
-        t_t = np.arange(0,tf,dt)
-        print('Number of timsteps:{}'.format(len(t_t)))
+        self.dt = self.signals.dt_calc()
+        self.t_t = np.arange(0,tf,self.dt)
+        print('Number of timsteps:{}'.format(len(self.t_t)))
         y0 = [0.0,0.0]
-        solution,infodict = odeint(self.ODE_model,y0,t_t,args=(fm,),full_output=1,printmessg=True,atol=1e-6,rtol=1e-6)
-        ia_t = solution[:,0]
+        solution,infodict = odeint(self.ODE_model,y0,self.t_t,full_output=1,printmessg=True,atol=1e-6,rtol=1e-6)
         
-        self.plot_signal(t_t,ia_t,'ia',showPlot=True)
+        self.ia_t = solution[:,0]
+        self.va_t = self.ia_t*self.Rload
+        
+        plot_signal(self.t_t,self.ia_t,'ia',showPlot=False)
+        plot_signal(self.t_t,self.va_t,'va',showPlot=True)
+        
+        
+        return solution
     
     def show_states(self):
         """Show states."""

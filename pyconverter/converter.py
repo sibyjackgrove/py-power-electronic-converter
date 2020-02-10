@@ -202,6 +202,11 @@ class PowerElectronicConverter:
         Scomplimentary = int(not signal)       
     
         return Scomplimentary    
+    
+    def calc_average(self,m):
+        """Calculate average voltage."""
+        
+        return Vdc
 
         
 class PowerElectronicInverter(PowerElectronicConverter):
@@ -273,6 +278,19 @@ class PowerElectronicInverter(PowerElectronicConverter):
 
         return Van
     
+    def half_bridge_average(self,Vdc,m):
+        """Simulates a bridge in inverter"""
+        
+        self.update_Vdc(Vdc)
+
+        assert m>=0 and m <= 1, 'duty cycle should be between 0 and 1.'
+
+        Van = m*(self.Vdc/2)
+        
+        #print('Van:{}'.format(Van))
+
+        return Van
+    
     def three_phase_full_bridge_ideal(Vdc,S1,S2,S3):
         """Simulates a bridge in inverter"""
 
@@ -325,7 +343,24 @@ class PowerElectronicInverter(PowerElectronicConverter):
         
         return np.array(result)
     
-    def simulate_inverter(self,tf):
+    def ODE_model_average(self,y,t):
+        """ODE model of inverter branch."""
+        
+        self.ia,dummy = y   # unpack current values of y
+        #Am = 1 #Amplitude of modulating signal
+       
+        Vdc = 100.0 #Get DC link voltage
+        m = 0.5
+        
+        self.vta = self.half_bridge_average(Vdc,m)
+        
+        dia = (1/self.Lf)*(-self.Rf*self.ia + -self.Rload*self.ia + self.vta)
+        
+        result =  [dia,dummy]
+        
+        return np.array(result)
+    
+    def simulate_inverter(self,tf,model_type = 'switching'):
         """Simulate an inverter.
         
         Args:
@@ -337,6 +372,12 @@ class PowerElectronicInverter(PowerElectronicConverter):
         self.t_t = np.arange(0,tf,self.dt)
         print('Number of timsteps:{}'.format(len(self.t_t)))
         y0 = [0.0,0.0]
+        
+        if model_type == 'switching':
+            ODE_model = self.ODE_model
+        elif model_type == 'average':
+            ODE_model = self.ODE_model_average
+        
         solution,infodict = odeint(self.ODE_model,y0,self.t_t,full_output=1,printmessg=True,atol=1e-6,rtol=1e-6)
         
         self.ia_t = solution[:,0]

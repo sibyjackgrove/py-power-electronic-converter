@@ -1,0 +1,1 @@
+DEFAULT_fsw = 10000 #Switching frequency in Hz

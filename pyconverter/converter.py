@@ -9,156 +9,10 @@ import logging
 from scipy import signal
 from scipy.integrate import odeint,ode
 
-from converter_utilities import plot_signal
-
-class SwitchingSignals:
-    """
-    Converter base class.
-    
-    Attributes:
-        count (int): Number of converter objects.
-        
-    """
-    
-    count = 0 #Object count
-    
-    def __init__(self,fsw,fm):
-        """Creates an instance of `SwitchingSignals`.
-        
-        Args:
-           fsw (float): Switching frequency in Hz.
-           fm (float): Fundamental frequency of output waveform in Hz.
-           
-        Raises:
-          ValueError: To be added
-        
-        """
-        
-        self.update_modulating_waveform(1.0,fm)
-        self.update_carrier_waveform(1.0,fsw)
-   
-    
-    @property                         #Decorator used for auto updating
-    def mf(self,):
-        """Frequency modulation index"""
-        
-        return self.fsw/self.fm
-    
-    @property                         #Decorator used for auto updating
-    def ma(self,):
-        """Amplitude modulation index"""
-        
-        return self.Am/self.Ac
-    
-    def update_modulating_waveform(self,Am=1.0,fm = 50.0):
-        """Update modulating amplitude and frequency."""
-        
-        self.Am=Am
-        self.fm = fm
-        self.Tm= 1/self.fm
-    
-    def update_carrier_waveform(self,Ac=1.0,fsw = 10000.0):
-        """Update switching/carrier amplitude and frequency."""
-                
-        self.Ac = Ac
-        self.fsw = fsw #(fsw = fcarrier)Switching and carrier frequency are same    
-        self.Tsw = 1/self.fsw
-    
-    def show_waveforms(self):
-        """Show waveforms."""
-        
-        print('fswitch:{:.2f},Tswitch:{:.5f}'.format(self.fsw,self.Tsw))
-        print('fmodulating:{:.2f},Tmodulating:{:.5f}'.format(self.fsw,self.Tsw))
-        print('ma:{:.3f},mf:{:.3f}'.format(self.ma,self.mf))
-        
-        print('Time step:{:.5f}'.format(self.dt_calc()))
-    
-    def sinosoidalPWM(self,t):
-        """Create a sinusoidal PWM signal."""
-        
-        modulating_signal = self.sinosoid(self.Am,self.fm,t)
-        carrier_signal = self.sawtooth(self.Ac,self.fsw,t)
-        
-        switching_signal = self.comparator(modulating_signal,carrier_signal)
-
-        return {'switching':switching_signal,'carrier':carrier_signal,'modulating':modulating_signal} 
-    
-    def square_wave(self,t):
-        """Create a square wave signal for ."""
-        
-        modulating_signal = self.sinosoid(self.Am,self.fm,t)
-
-        #if modulating_signal>0.0:
-        #    switching_signal = True
-        #else:
-        #    switching_signal = False
-            
-        switching_signal = self.comparator(modulating_signal,0.0)    
-
-        return {'switching':switching_signal,'modulating':modulating_signal}
-  
-    def comparator(self,modulating_signal,carrier_signal):
-        """Compare modulating signal with carrier signal."""
-        
-        if modulating_signal>carrier_signal:
-            switching_signal = True
-        else:
-            switching_signal = False
-        return switching_signal
-    
-    def square(self,amplitude,frequency,duty,t):
-        """Create a sinusoid time series."""
-    
-        return amplitude*signal.square(2*np.pi*frequency*t,duty)
-    
-    def sinosoid(self,amplitude,frequency,t):
-        """Create a sinusoid time series."""
-        
-        return amplitude*np.sin(2*np.pi*frequency*t)
-
-    def sawtooth(self,amplitude,frequency,t):
-        """Create a sinusoid time series."""
-        
-        return amplitude*signal.sawtooth(2*np.pi*frequency*t, width=0.5)
-
-            
-    def check_fsw(self):
-        """Check if fsw is sufficient."""
-        
-        assert self.fsw/self.fm >= 6.0, 'Switching freq {} should be atleast 6 times greater than modulating signal frequency {}'.format(self.fsw,self.fm)
-    
-    def dt_calc(self):
-        """Calcuate time step."""
-        
-        return 1/(10*self.fsw) #Time steps in switching simulation
-    
-    def simulate_switching(self,tf,modulating_signal = 'sinusoid'):
-        """Simulate converter operation."""
-        
-        Am = 1 #Amplitude of modulating signal
-        fm = 10 #Frequency of modulating signal
-        dt = self.dt_calc()
-        
-        carrier_signal_t = []
-        switching_signal_t = []
-        
-        t_t = np.arange(0,tf,dt) #np.linspace(0, 2, 1000)
-        if modulating_signal == 'sinusoid':
-            modulating_signal_t = self.sinosoid(Am,fm,t_t)
-        else:
-            modulating_signal_t = self.square(0.5,fm,1.0,t_t)
-        
-        for t,modulating_signal in zip(t_t,modulating_signal_t):
-            switching_signal,carrier_signal = self.sinosoidalPWM(t,modulating_signal)
-            switching_signal_t.append(switching_signal)
-            carrier_signal_t.append(carrier_signal)    
-            print('Modulating signal:{:.3f},Carrier signal:{:.3f},Switching signal:{:.3f}'.format(modulating_signal,carrier_signal,switching_signal))
-        
-        plot_signal(t_t, modulating_signal_t,'modulating signal',False)
-        plot_signal(t_t, carrier_signal_t,'carrier signal',False)
-        plot_signal(t_t, switching_signal_t,'switching signal',True)
-    
-        
+#from converter_utilities import plot_signal, plot_FFT
+import converter_utilities
+import config
+      
 
 class PowerElectronicConverter:
     """
@@ -171,7 +25,7 @@ class PowerElectronicConverter:
     
     count = 0 #Object count
     
-    def __init__(self):
+    def __init__(self,model_type,signal_type):
         """Creates an instance of `Converter`.
         
         Args:
@@ -185,8 +39,20 @@ class PowerElectronicConverter:
         PowerElectronicConverter.count = PowerElectronicConverter.count+1 #Increment count to keep track of number of converter model instances
         
         self.name = 'converter_'+str(PowerElectronicConverter.count)  #Generate a name for the instance
-       
+        self.model_type = model_type
+        self.signal_type = signal_type
+        
+        if self.model_type is 'switching':
+            assert self.signal_type is 'square_wave' or self.signal_type is 'sinePWM', 'Switching model needs square or sine PWM as switching signal!'
+        if self.model_type is 'average':
+            assert self.signal_type is 'duty_cycle', 'Average model needs duty_cycle as switching signal!'
     
+    def show_spec(self):
+        """Print the specs."""
+        
+        print('Model type:{}'.format(self.model_type))
+        print('Switching signal type:{}'.format(self.signal_type))
+            
     def calc_primary(self,signal):
         """Calculate the primary switch."""
         
@@ -207,7 +73,7 @@ class PowerElectronicConverter:
         """Calculate average voltage."""
         
         return Vdc
-
+    
         
 class PowerElectronicInverter(PowerElectronicConverter):
     """
@@ -223,7 +89,7 @@ class PowerElectronicInverter(PowerElectronicConverter):
     
     Rload = 1.0
     
-    def __init__(self,Vdc,signals,signal_type='square'):
+    def __init__(self,Vdc,model_type = 'average',signal_type='duty_cycle'):
         """Creates an instance of `Converter`.
         
         Args:
@@ -234,11 +100,10 @@ class PowerElectronicInverter(PowerElectronicConverter):
         
         """
         
-        super().__init__()  #Initialize converter class (base class)
+        super().__init__(model_type,signal_type)  #Initialize converter class (base class)
         
         self.update_Vdc(Vdc)
-        self.signals = signals
-        self.signal_type='square'
+        
     
     @property                         #Decorator used for auto updating
     def y(self):
@@ -251,17 +116,37 @@ class PowerElectronicInverter(PowerElectronicConverter):
         
         self.Vdc = Vdc
     
-    def switching_signal_calc(self,t):
+    def control_signal_calc(self,signals,t):
+        """Calculate control signal."""
+        
+        if self.model_type is 'switching':
+            signals = self.switching_signal_calc(t)
+            control_signal = signals['switching']
+        elif self.model_type is 'average':
+            signals = self.average_signal_calc(signals,t)
+            control_signal = signals['modulating']
+        
+        return control_signal
+    
+    def switching_signal_calc(self,signals,t):
         """Calculate switching signal."""
         
-        if self.signal_type=='PWM':
-            signal_dict = self.signals.sinosoidalPWM(t)
-        elif self.signal_type=='square':     
-            signal_dict = self.signals.square_wave(t)
+        if self.signal_type=='sinePWM':
+            signal_dict = signals.sinosoidalPWM(t)
+        elif self.signal_type=='square_wave':     
+            signal_dict = signals.square_wave(t)
+        #print(signal_dict)
+        return signal_dict
     
+    def average_signal_calc(self,signals,t):
+        """Calculate switching signal."""
+        
+        if self.signal_type=='duty_cycle':
+            signal_dict = signals.duty_cycle(t)  
+        
         return signal_dict
         
-    def half_bridge_ideal(self,Vdc,S1):
+    def half_bridge_switching(self,Vdc,S1):
         """Simulates a bridge in inverter"""
         
         self.update_Vdc(Vdc)
@@ -283,13 +168,28 @@ class PowerElectronicInverter(PowerElectronicConverter):
         
         self.update_Vdc(Vdc)
 
-        assert m>=0 and m <= 1, 'duty cycle should be between 0 and 1.'
+        assert m>=-1 and m <= 1, 'duty cycle should be between 0 and 1.'
 
         Van = m*(self.Vdc/2)
         
         #print('Van:{}'.format(Van))
 
         return Van
+    
+    def half_bridge_phasor(self,Vdc,m):
+        """Simulates a bridge in inverter"""
+        
+        self.update_Vdc(Vdc)
+
+        assert isinstance(m,complex), 'duty cycle should be complex phasor.'
+
+        Van = m*(self.Vdc/2)
+        
+        #print('Van:{}'.format(Van))
+
+        return Van
+       
+        #Current controller dynamics
     
     def three_phase_full_bridge_ideal(Vdc,S1,S2,S3):
         """Simulates a bridge in inverter"""
@@ -325,19 +225,60 @@ class PowerElectronicInverter(PowerElectronicConverter):
 
         return Van,Vbn,Vcn
 
-    def ODE_model(self,y,t):
+    def get_model(self):
+        """Select ODE model."""
+        
+        if self.model_type is 'switching' or self.model_type is 'average':
+            model = self.ODE_model_EMT
+        #elif self.converter.model_type is 'average':
+        #    model = self.ODE_model_average
+        elif self.model_type is 'dynamic_phasor':
+            model = self.ODE_model_dynamicphasor
+        
+        return model
+    
+    def setup_model(self):
+        """Initialize mode."""
+        
+        if self.model_type is 'switching' or self.model_type is 'average':
+            self.ia = 0.0
+        elif self.model_type is 'dynamic_phasor':
+            self.iaR = 0.0
+            self.iaI = 0.0        
+    
+    def vta_calc(self,Vdc,control_signal):
+        """Calculate inverter terminal voltage."""
+        
+        if self.model_type is 'switching':
+            vta = self.half_bridge_switching(Vdc,control_signal)
+        elif self.model_type is 'average':
+            vta = self.half_bridge_average(Vdc,control_signal)
+       
+        return vta
+    
+    
+    def va_calc(self,t,grid,use_grid = True):
+        """Calculate PCC voltage."""
+        
+        if use_grid:
+            vpcc = grid.grid_voltage_calc(t)
+        else:
+            vpcc = self.Rload*self.ia
+        
+        return vpcc
+    
+    def ODE_model_switching(self,y,t):
         """ODE model of inverter branch."""
         
         self.ia,dummy = y   # unpack current values of y
-        #Am = 1 #Amplitude of modulating signal
-       
+        
         Vdc = 100.0 #Get DC link voltage
-        signals = self.switching_signal_calc(t)
-        switching_signal = signals['switching']
+        switching_signal = self.control_signal_calc(t)
         
-        self.vta = self.half_bridge_ideal(Vdc,switching_signal)
+        self.vta = self.half_bridge_switching(Vdc,switching_signal)
+        self.va = self.PCC_voltage_calc(self.ia,t)
         
-        dia = (1/self.Lf)*(-self.Rf*self.ia + -self.Rload*self.ia + self.vta)
+        dia = (1/self.Lf)*(-self.Rf*self.ia -self.va + self.vta)
         
         result =  [dia,dummy]
         
@@ -347,47 +288,56 @@ class PowerElectronicInverter(PowerElectronicConverter):
         """ODE model of inverter branch."""
         
         self.ia,dummy = y   # unpack current values of y
-        #Am = 1 #Amplitude of modulating signal
-       
+               
         Vdc = 100.0 #Get DC link voltage
-        m = 0.5
+        modulating_signal = self.control_signal_calc(t)
+                
+        self.vta = self.half_bridge_average(Vdc,modulating_signal)
+        self.va = self.PCC_voltage_calc(self.ia,t)
         
-        self.vta = self.half_bridge_average(Vdc,m)
-        
-        dia = (1/self.Lf)*(-self.Rf*self.ia + -self.Rload*self.ia + self.vta)
-        
+        dia = (1/self.Lf)*(-self.Rf*self.ia -self.va + self.vta)
+                
         result =  [dia,dummy]
         
         return np.array(result)
     
-    def simulate_inverter(self,tf,model_type = 'switching'):
-        """Simulate an inverter.
+    def ODE_model_EMT(self,y,t,signals,grid,sim):
+        """ODE model of inverter branch."""
         
-        Args:
-           fm (float): Frequency of modulating signal in Hz.
-           tf (float): Simulation time in seconds.
-        """
+        self.ia,dummy = y   # unpack current values of y
         
-        self.dt = self.signals.dt_calc()
-        self.t_t = np.arange(0,tf,self.dt)
-        print('Number of timsteps:{}'.format(len(self.t_t)))
-        y0 = [0.0,0.0]
+        Vdc = 100.0 #Get DC link voltage
+        control_signal = self.control_signal_calc(signals,t)
+        self.vta = self.vta_calc(Vdc,control_signal)
+        self.va = self.va_calc(t,grid,sim.use_grid)
+                               
+        dia = (1/self.Lf)*(-self.Rf*self.ia -self.va + self.vta)
+                
+        result =  [dia,dummy]
         
-        if model_type == 'switching':
-            ODE_model = self.ODE_model
-        elif model_type == 'average':
-            ODE_model = self.ODE_model_average
+        return np.array(result)
+    
+    
+    def ODE_model_dynamicphasor(self,y,t):
+        """Dynamic phasor."""
         
-        solution,infodict = odeint(self.ODE_model,y0,self.t_t,full_output=1,printmessg=True,atol=1e-6,rtol=1e-6)
+        iaR,iaI = y   # unpack current values of y
+        Vdc = 100.0 #Get DC link voltage
+        winv = 2*math.pi*60
         
-        self.ia_t = solution[:,0]
-        self.va_t = self.ia_t*self.Rload
+        self.ia = iaR + 1j*iaI
+        self.vta = self.half_bridge_phasor(Vdc,1.0+1j*0.0)
         
-        plot_signal(self.t_t,self.ia_t,'ia',showPlot=False)
-        plot_signal(self.t_t,self.va_t,'va',showPlot=True)
+        diaR = (1/self.Lf)*(-self.Rf*self.ia.real - self.Rload*self.ia.real + self.vta.real) + (winv)*self.ia.imag 
+        diaI = (1/self.Lf)*(-self.Rf*self.ia.imag - self.Rload*self.ia.imag + self.vta.imag) - (winv)*self.ia.real  
+        result =  [diaR,diaI]
         
+        return np.array(result)    
+    
+    def power_calc(self,v,i):
+        """Calcuate instantaneous power."""
         
-        return solution
+        return v*i
     
     def show_states(self):
         """Show states."""

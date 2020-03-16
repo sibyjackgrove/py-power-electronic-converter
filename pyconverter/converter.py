@@ -12,7 +12,7 @@ from scipy.integrate import odeint,ode
 #from converter_utilities import plot_signal, plot_FFT
 import converter_utilities
 import config
-      
+from models import InverterModels      
 
 class PowerElectronicConverter:
     """
@@ -25,7 +25,7 @@ class PowerElectronicConverter:
     
     count = 0 #Object count
     
-    def __init__(self,model_type,signal_type):
+    def __init__(self,model_type):
         """Creates an instance of `Converter`.
         
         Args:
@@ -39,13 +39,21 @@ class PowerElectronicConverter:
         PowerElectronicConverter.count = PowerElectronicConverter.count+1 #Increment count to keep track of number of converter model instances
         
         self.name = 'converter_'+str(PowerElectronicConverter.count)  #Generate a name for the instance
-        self.model_type = model_type
-        self.signal_type = signal_type
         
+        
+        self.model_type = model_type
+        
+        """
         if self.model_type is 'switching':
             assert self.signal_type is 'square_wave' or self.signal_type is 'sinePWM', 'Switching model needs square or sine PWM as switching signal!'
         if self.model_type is 'average':
             assert self.signal_type is 'duty_cycle', 'Average model needs duty_cycle as switching signal!'
+        """
+        
+    def check_model_type(self,model_type):
+        """Check if model type is valid."""
+        
+        assert model_type in self.model_types, f'{model_type} is not a valid model type!'
     
     def show_spec(self):
         """Print the specs."""
@@ -74,8 +82,10 @@ class PowerElectronicConverter:
         
         return Vdc
     
-        
-class PowerElectronicInverter(PowerElectronicConverter):
+        #Current controller dynamics
+    
+    
+class PowerElectronicInverter(PowerElectronicConverter,InverterModels):
     """
     Inverter class.
     
@@ -85,11 +95,15 @@ class PowerElectronicInverter(PowerElectronicConverter):
     """
     
     Rf = 0.01
-    Lf = 2.0e-3
+    Lf = 1.0e-3
     
     Rload = 1.0
     
-    def __init__(self,Vdc,model_type = 'average',signal_type='duty_cycle'):
+    inverter_types = ['single_phase_half_bridge','single_phase_full_bridge',
+                     'three_phase_full_bridge']
+    model_types = ['EMT_switching','EMT_average','dynamic_phasor']
+    
+    def __init__(self,Vdc,model_type = 'EMT_average',inverter_type='single_phase_half_bridge'):
         """Creates an instance of `Converter`.
         
         Args:
@@ -99,10 +113,13 @@ class PowerElectronicInverter(PowerElectronicConverter):
           ValueError: To be added.
         
         """
+                
+        self.check_model_type(model_type)
         
-        super().__init__(model_type,signal_type)  #Initialize converter class (base class)
+        super().__init__(model_type)  #Initialize converter class (base class)
         
         self.update_Vdc(Vdc)
+        self.inverter_type =inverter_type
         
     
     @property                         #Decorator used for auto updating
@@ -115,139 +132,130 @@ class PowerElectronicInverter(PowerElectronicConverter):
         """Update DC link voltage."""
         
         self.Vdc = Vdc
-    
+    """
     def control_signal_calc(self,signals,t):
-        """Calculate control signal."""
+        Calculate control signal.
         
-        if self.model_type is 'switching':
-            signals = self.switching_signal_calc(t)
+        if self.model_type is 'EMT_switching':
+            signals = self.switching_signal_calc(signals,t)
             control_signal = signals['switching']
-        elif self.model_type is 'average':
+        elif self.model_type is 'EMT_average':
             signals = self.average_signal_calc(signals,t)
             control_signal = signals['modulating']
+        elif self.model_type is 'dynamicphasor':
+            pass
         
         return control_signal
-    
-    def switching_signal_calc(self,signals,t):
-        """Calculate switching signal."""
-        
-        if self.signal_type=='sinePWM':
-            signal_dict = signals.sinosoidalPWM(t)
-        elif self.signal_type=='square_wave':     
-            signal_dict = signals.square_wave(t)
-        #print(signal_dict)
-        return signal_dict
-    
-    def average_signal_calc(self,signals,t):
-        """Calculate switching signal."""
-        
-        if self.signal_type=='duty_cycle':
-            signal_dict = signals.duty_cycle(t)  
-        
-        return signal_dict
-        
-    def half_bridge_switching(self,Vdc,S1):
-        """Simulates a bridge in inverter"""
-        
-        self.update_Vdc(Vdc)
-
-        S11 = self.calc_primary(S1)
-        S12 = self.calc_complimentary(S1)
-        
-        assert S11+S12 == 1, 'S11 and S12 switches cannot be both ON or OFF at the same time in ideal half bridge.'
-
-        #print('S11:{},S12:{}'.format(S11,S12))
-        Van = (S11 - S12)*(self.Vdc/2)
-        
-        #print('Van:{}'.format(Van))
-
-        return Van
-    
-    def half_bridge_average(self,Vdc,m):
-        """Simulates a bridge in inverter"""
-        
-        self.update_Vdc(Vdc)
-
-        assert m>=-1 and m <= 1, 'duty cycle should be between 0 and 1.'
-
-        Van = m*(self.Vdc/2)
-        
-        #print('Van:{}'.format(Van))
-
-        return Van
-    
-    def half_bridge_phasor(self,Vdc,m):
-        """Simulates a bridge in inverter"""
-        
-        self.update_Vdc(Vdc)
-
-        assert isinstance(m,complex), 'duty cycle should be complex phasor.'
-
-        Van = m*(self.Vdc/2)
-        
-        #print('Van:{}'.format(Van))
-
-        return Van
-       
-        #Current controller dynamics
-    
-    def three_phase_full_bridge_ideal(Vdc,S1,S2,S3):
-        """Simulates a bridge in inverter"""
-
-        S11 = calc_primary(S1)
-        S12 = calc_complimentary(S1)
-
-        S21 = calc_primary(S2)
-        S22 = calc_complimentary(S2)
-
-        S31 = calc_primary(S3)
-        S32 = calc_complimentary(S3)
-        
-        assert S11+S12 == 1, 'S11 and S12 switches cannot be both ON or OFF at the same time in ideal half bridge.'
-        assert S21+S22 == 1, 'S21 and S22 switches cannot be both ON or OFF at the same time in ideal half bridge.'
-        assert S31+S32 == 1, 'S31 and S32 switches cannot be both ON or OFF at the same time in ideal half bridge.'        
-
-        print('S1:{},S2:{},S3:{}'.format(S11,S21,S31))
-
-        Vno =  (self.Vdc/6)*(2*S11+2*S21+2*S31-3)
-
-        Van = (self.Vdc/2)*(S11-S12)-Vno
-        Vbn = (self.Vdc/2)*(S21-S22)-Vno
-        Vcn = (self.Vdc/2)*(S31-S32)-Vno
-
-        #Van = (2*S11 - S21 - S31)*(Vdc/3)
-        #Vbn = (2*S21 - S11 - S31)*(Vdc/3)
-        #Vcn = (2*S31 - S21 - S11)*(Vdc/3)
-        print('Vno:{},Van+Vbn+Vcn:{}'.format(Vno,Van+Vbn+Vcn))
-
-        print('Van:{},Vbn:{},Vcn:{}'.format(Van,Vbn,Vcn))
-        print('Vab:{},Vbc:{},Vca:{}'.format(Van-Vbn,Vbn-Vcn,Vcn-Van))
-
-        return Van,Vbn,Vcn
-
-    def get_model(self):
-        """Select ODE model."""
-        
-        if self.model_type is 'switching' or self.model_type is 'average':
-            model = self.ODE_model_EMT
-        #elif self.converter.model_type is 'average':
-        #    model = self.ODE_model_average
-        elif self.model_type is 'dynamic_phasor':
-            model = self.ODE_model_dynamicphasor
-        
-        return model
-    
+    """    
     def setup_model(self):
         """Initialize mode."""
         
-        if self.model_type is 'switching' or self.model_type is 'average':
-            self.ia = 0.0
-        elif self.model_type is 'dynamic_phasor':
-            self.iaR = 0.0
-            self.iaI = 0.0        
+        self.initialize_model()  
+        self.vt_calc = self.select_vt_model()
+        self.vpcc_calc = self.select_vpcc_model()
+        self.ODE_model = self.select_ODE_model()
+        #self.control_signal_calc = self.select_control_signal()
+       
     
+    def select_control_signal(self):
+        """Select the control signal suitable for the problem."""
+        
+        if self.model_type is 'EMT_switching':
+            if self.inverter_type == 'single_phase_half_bridge':
+                control_signal = self.switching_signal_single_phase
+            elif self.inverter_type == 'single_phase_full_bridge':
+                raise NotImplementedError(f'{self.inverter_type} is not implemented!')
+        
+        elif self.model_type is 'EMT_average':
+            if self.inverter_type == 'single_phase_half_bridge':
+                control_signal = self.modulating_signal_single_phase
+            elif self.inverter_type == 'single_phase_full_bridge':
+                raise NotImplementedError(f'{self.inverter_type} is not implemented!')
+        
+        elif self.model_type is 'dynamic_phasor':
+            if self.inverter_type == 'single_phase_half_bridge':
+                control_signal = self.phasor_signal_single_phase
+            elif self.inverter_type == 'single_phase_full_bridge':
+                raise NotImplementedError(f'{self.inverter_type} is not implemented!')
+        
+        return control_signal
+    
+    def select_vt_model(self):
+        """Get the terminal voltage model."""
+        
+        if self.model_type == 'EMT_switching':
+            if self.inverter_type == 'single_phase_half_bridge':
+                vt_model = self.single_phase_half_bridge_switching
+            elif self.inverter_type == 'single_phase_full_bridge':
+                vt_model = self.single_phase_full_bridge_switching
+            elif self.inverter_type == 'three_phase_full_bridge':
+                vt_model = self.three_phase_full_bridge_switching
+            else:
+                print(f'{self.inverter_type} not found for model type {self.model_type}!')
+        elif self.model_type == 'EMT_average':
+            if self.inverter_type == 'single_phase_half_bridge':
+                vt_model = self.single_phase_half_bridge_average
+            elif self.inverter_type == 'single_phase_full_bridge':
+                vt_model = self.single_phase_full_bridge_average
+            elif self.inverter_type == 'three_phase_full_bridge':
+                raise NotImplementedError(f'{self.inverter_type} is not implemented!')
+            else:
+                print(f'{self.inverter_type} not found for model type {self.model_type}!')
+        elif self.model_type == 'dynamicphasor':
+            if self.inverter_type == 'single_phase_half_bridge':
+                vt_model = self.single_phase_half_bridge_phasor
+            elif self.inverter_type == 'single_phase_full_bridge':
+                vt_model = self.single_phase_full_bridge_phasor
+            elif self.inverter_type == 'three_phase_full_bridge':
+                raise NotImplementedError(f'{self.inverter_type} is not implemented!')
+            else:
+                print(f'{self.inverter_type} not found for model type {self.model_type}!')    
+        
+        print(type(vt_model))
+        return vt_model
+
+    def select_vpcc_model(self,grid=None):
+        """Get the PCC voltage model."""     
+        
+        if not grid:
+            vpcc_model = self.v_load_model()
+         
+        return vpcc_model
+
+    def select_ODE_model(self):
+        """Select ODE model."""
+        
+        if self.model_type is 'EMT_switching' or self.model_type is 'EMT_average':
+           if self.inverter_type  is 'single_phase_half_bridge' or self.inverter_type  is 'single_phase_full_bridge':
+              ODE_model = self.ODE_model_single_phase_EMT
+           elif self.inverter_type  is 'three_phase_full_bridge':
+              raise NotImplementedError(f'{self.inverter_type} is not implemented!')
+        elif self.model_type is 'dynamic_phasor':
+           if self.inverter_type is 'single_phase_half_bridge' or self.inverter_type  is 'single_phase_full_bridge':
+              ODE_model = self.ODE_model_single_phase_dynamicphasor
+           elif self.inverter_type  is 'three_phase_full_bridge':
+              raise NotImplementedError(f'{self.inverter_type} is not implemented!')
+            
+        return ODE_model
+    
+    def initialize_model(self):
+        """Initialize mode."""
+        
+        if self.model_type is 'EMT_switching' or self.model_type is 'EMT_average':
+            if self.inverter_type  is 'single_phase_half_bridge' or self.inverter_type  is 'single_phase_full_bridge':
+                self.ia = 0.0
+            elif self.inverter_type  is 'three_phase_full_bridge':
+                raise NotImplementedError
+           
+        elif self.model_type is 'dynamic_phasor':
+            if self.inverter_type  is 'single_phase_half_bridge' or self.inverter_type  is 'single_phase_full_bridge':
+                self.iaR = 0.0
+                self.iaI = 0.0
+            if self.inverter_type  is 'three_phase_full_bridge':
+                raise NotImplementedError           
+    """
     def vta_calc(self,Vdc,control_signal):
-        """Calculate inverter terminal voltage."""
+        Calculate inverter terminal voltage.
         
         if self.model_type is 'switching':
             vta = self.half_bridge_switching(Vdc,control_signal)
@@ -255,17 +263,12 @@ class PowerElectronicInverter(PowerElectronicConverter):
             vta = self.half_bridge_average(Vdc,control_signal)
        
         return vta
+    """
     
-    
-    def va_calc(self,t,grid,use_grid = True):
-        """Calculate PCC voltage."""
+    def v_load_model(self):
+        """Calculate voltage across load at PCC."""        
         
-        if use_grid:
-            vpcc = grid.grid_voltage_calc(t)
-        else:
-            vpcc = self.Rload*self.ia
-        
-        return vpcc
+        return self.Rload*self.ia
     
     def ODE_model_switching(self,y,t):
         """ODE model of inverter branch."""
@@ -301,38 +304,6 @@ class PowerElectronicInverter(PowerElectronicConverter):
         
         return np.array(result)
     
-    def ODE_model_EMT(self,y,t,signals,grid,sim):
-        """ODE model of inverter branch."""
-        
-        self.ia,dummy = y   # unpack current values of y
-        
-        Vdc = 100.0 #Get DC link voltage
-        control_signal = self.control_signal_calc(signals,t)
-        self.vta = self.vta_calc(Vdc,control_signal)
-        self.va = self.va_calc(t,grid,sim.use_grid)
-                               
-        dia = (1/self.Lf)*(-self.Rf*self.ia -self.va + self.vta)
-                
-        result =  [dia,dummy]
-        
-        return np.array(result)
-    
-    
-    def ODE_model_dynamicphasor(self,y,t):
-        """Dynamic phasor."""
-        
-        iaR,iaI = y   # unpack current values of y
-        Vdc = 100.0 #Get DC link voltage
-        winv = 2*math.pi*60
-        
-        self.ia = iaR + 1j*iaI
-        self.vta = self.half_bridge_phasor(Vdc,1.0+1j*0.0)
-        
-        diaR = (1/self.Lf)*(-self.Rf*self.ia.real - self.Rload*self.ia.real + self.vta.real) + (winv)*self.ia.imag 
-        diaI = (1/self.Lf)*(-self.Rf*self.ia.imag - self.Rload*self.ia.imag + self.vta.imag) - (winv)*self.ia.real  
-        result =  [diaR,diaI]
-        
-        return np.array(result)    
     
     def power_calc(self,v,i):
         """Calcuate instantaneous power."""

@@ -20,11 +20,13 @@ def plot_signal(time,signal,label,showPlot=False):
     
     plt.plot(time, signal,label=label)
     plt.legend(fontsize =18)
-        
-    if showPlot:
-        plt.xlabel('Time (s)')
-        plt.ylabel('Amplitude')            
-        plt.show()    
+
+def show_plot_signal():
+    """show plots."""
+    
+    plt.xlabel('Time (s)')
+    plt.ylabel('Amplitude')            
+    plt.show()    
         
 def plot_FFT(f_s,y):
     """Plot FFT."""
